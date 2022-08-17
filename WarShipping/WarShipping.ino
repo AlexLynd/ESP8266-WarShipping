@@ -114,7 +114,6 @@ void wifiRecon() {
     unsigned long prevTime = millis();
 
     Serial.println("Starting recon for 30 seconds:");
-        // while () {    
             esppl_sniffing_start();
 
             while (currTime - prevTime < interval) { // gather recon for 30 seconds, save to recon.csv
@@ -126,7 +125,6 @@ void wifiRecon() {
                     }
                 }
             }  
-        // }
     Serial.println("Exiting recon");
     
 }
