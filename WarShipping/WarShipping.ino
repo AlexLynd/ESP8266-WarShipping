@@ -52,7 +52,7 @@ String header(String t) {
 
 // read credentials from csv
 String creds() {
-    String credHTML = "";
+    String credHTML = "<table>";
     
     // read csv file and construct html string 
     Serial.println("Reading creds.csv database");
@@ -65,14 +65,15 @@ String creds() {
         // split username and password
         String tmpHTML = buffer;
 
-        credHTML+="<h3>Email:</h3>";
-        credHTML+="<p>"+tmpHTML.substring(0,tmpHTML.indexOf(","))+"</p>";
-        credHTML+="<h3>Password:</h3>";
-        credHTML+="<p>"+tmpHTML.substring(tmpHTML.indexOf(",")+1,tmpHTML.length())+"</p>";
-
+        credHTML+="<tr>";
+        credHTML+="<td>"+tmpHTML.substring(0,tmpHTML.indexOf(","))+"</td>";
+        credHTML+="<td>"+tmpHTML.substring(tmpHTML.indexOf(",")+1,tmpHTML.length())+"</td>";
+        credHTML+="</tr>";
 
     }
+    credHTML+="</table>";
     credDB.close();
+    
     return credHTML;
     // Serial.println(credHTML);
     
