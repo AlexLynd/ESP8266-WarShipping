@@ -19,7 +19,7 @@
 #define maxDevices 100
 
 // recon scan in seconds
-#define scanDurationSec 5
+#define scanDurationSec 3
 
 // Init System Settings
 const byte HTTP_CODE = 200;
@@ -237,18 +237,18 @@ void generateReconDB() {
     }
     else { Serial.println("Database recon.csv found!"); Serial.println("Access recon data at 172.0.0.1/recon"); }
 
-    File recon = SPIFFS.open("/recon.csv", "a");
+    File tmpRecon = SPIFFS.open("/recon.csv", "a");
 
     Serial.println("Writing "+ (String) devCount +"devices to database.");
     for(uint8_t i=0; i<devCount; i++){
         for (uint8_t j=0; j<4; j++){
-            recon.print(devices[i][j]);
-            recon.print(",");
+            tmpRecon.print(devices[i][j]);
+            tmpRecon.print(",");
         }
-        recon.println(devices[i][4]);
+        tmpRecon.println(devices[i][4]);
     }
 
-    recon.close();
+    tmpRecon.close();
     Serial.println("Successfully generated recon.csv!");
 }
 

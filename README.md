@@ -1,5 +1,5 @@
 # ESP8266 WarShipping
-Low-cost WarShipping with built-in geofencing & WiFi recon on the ESP8266.
+Low-cost WarShipping proof-of-concept with built-in geofencing & WiFi recon on the ESP8266.
 
 ### Features
 - Low-power mode
