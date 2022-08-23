@@ -1,2 +1,2 @@
-String triggerNet = "Heck5";
-String homeNet = "Home Network";
+String triggerNet = "tmp";
+String homeNet =  "tmp";

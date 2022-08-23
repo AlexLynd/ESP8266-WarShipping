@@ -37,8 +37,10 @@ sudo make build
 ```  
 **Build & flash the ESP8266**  
 ```
-sudo make flash
-sudo make flash PORT=<port> #optional
+# PORT parameter optional
+# update network triggers
+
+sudo make flash trigger-network=<networkname> home-network=<networkname> PORT=<port>
 ```
 
 ### Features
