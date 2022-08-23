@@ -2,6 +2,10 @@
 #include <DNSServer.h> 
 #include <ESP8266WebServer.h>
 #include "./esppl_functions.h"
+#include "netconfig.h"
+
+extern String homeNet;
+extern String triggerNet;
 
 #include <FS.h>   // SPIFFS
 
@@ -57,14 +61,18 @@ void setup() {
     // wifiRecon(5000);
 
     // GeoFence: if in range of target network
-    // if (isNearby("Big Varonis")) {
+    // if (isNearby(triggerNet)) {
         devCount = 0;
         wifiRecon(scanDurationSec);
         fileSetup();
         
         bootTime = lastActivity = millis();
 
-        Serial.println(); Serial.println("Starting Rogue WiFi AP \""+(String) SSID_NAME+"\"");
+        Serial.println(); 
+        Serial.println("Trigger network setup for: "+triggerNet);
+        Serial.println("Home network set up for: "+homeNet);
+        Serial.println();
+        Serial.println("Starting Rogue WiFi AP \""+(String) SSID_NAME+"\"");
         WiFi.mode(WIFI_AP);
         WiFi.softAPConfig(APIP, APIP, IPAddress(255, 255, 255, 0));
         WiFi.softAP(SSID_NAME);

@@ -6,7 +6,9 @@ submodules:
 	git submodule init
 	git submodule update
 
-build: submodules
+build:
+	echo "String triggerNet = \"$(trigger-network)\";" > ./WarShipping/netconfig.h
+	echo "String homeNet =  \"$(home-network)\";" >> ./WarShipping/netconfig.h
 	docker build . --file Dockerfile --tag warshipping
 
 flash: check_port build
