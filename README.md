@@ -23,6 +23,12 @@ The "D1 Mini" form factor makes these components stackable, but I soldered every
 ### Setup
 Setup video + guide coming soon!
 
+#### Building & flashing from source
+To compile this tool from scratch, install `make` and `docker` on your machine.  
+
+`git clone https://github.com/AlexLynd/ESP8266-WarShipping`
+
+
 ### Features
 - Low-power mode
 - Geofencing
@@ -34,3 +40,4 @@ Setup video + guide coming soon!
 ### To-Do
 - CSV exports
 - Deep sleep
+- WiFi manager for cred setup
