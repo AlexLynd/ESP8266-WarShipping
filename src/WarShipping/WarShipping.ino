@@ -58,6 +58,7 @@ void setup() {
 
     // GeoFence: if in range of target network
     // if (isNearby("Big Varonis")) {
+        devCount = 0;
         wifiRecon(scanDurationSec);
         fileSetup();
         
@@ -239,7 +240,7 @@ void generateReconDB() {
 
     File tmpRecon = SPIFFS.open("/recon.csv", "a");
 
-    Serial.println("Writing "+ (String) devCount +"devices to database.");
+    Serial.println("Writing "+ (String) devCount +" devices to database.");
     for(uint8_t i=0; i<devCount; i++){
         for (uint8_t j=0; j<4; j++){
             tmpRecon.print(devices[i][j]);
