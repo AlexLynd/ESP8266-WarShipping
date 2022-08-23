@@ -24,10 +24,22 @@ The "D1 Mini" form factor makes these components stackable, but I soldered every
 Setup video + guide coming soon!
 
 #### Building & flashing from source
-To compile this tool from scratch, install `make` and `docker` on your machine.  
+To compile this tool from scratch, install `make` and `docker` on your machine.    
 
-`git clone https://github.com/AlexLynd/ESP8266-WarShipping`
-
+**Clone this GitHub repo & navigate to source**  
+```
+git clone https://github.com/AlexLynd/ESP8266-WarShipping
+cd WarShipping/src
+```
+**Build only**  
+```
+sudo make build
+```  
+**Build & flash the ESP8266**  
+```
+sudo make flash
+sudo make flash PORT=<port> #optional
+```
 
 ### Features
 - Low-power mode
