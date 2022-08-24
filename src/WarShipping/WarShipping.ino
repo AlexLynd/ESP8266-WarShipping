@@ -61,7 +61,7 @@ void setup() {
     // wifiRecon(5000);
 
     // GeoFence: if in range of target network
-    // if (isNearby(triggerNet)) {
+    if (isNearby(triggerNet)) {
         devCount = 0;
         wifiRecon(scanDurationSec);
         fileSetup();
@@ -86,9 +86,9 @@ void setup() {
         webServer.onNotFound([]() { lastActivity=millis(); webServer.send(HTTP_CODE, "text/html", index()); });
         webServer.begin();
         Serial.println(" done!");
-    // }
+    }
 
-    // else if (false) {
+    // else {
     //     ESP.deepSleep(0); // edit this to add deep sleep mode
     // }    
 }
